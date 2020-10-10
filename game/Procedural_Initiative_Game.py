@@ -1,7 +1,5 @@
 """
-Sam Bernstein, 2015, Windward Senior Initiative
- 
-Picked up again January of 2016
+Sam Bernstein, 2016
 
 """
  
@@ -10,6 +8,7 @@ from pygame.locals import *
 import math
 import copy
 import random
+import pickle
 
 printing = False
 def p_dev(*strings):
@@ -45,11 +44,13 @@ pygame.init()
 size = (1200, 740)
 screen = pygame.display.set_mode(size)
  
-pygame.display.set_caption("Get Me Outta Here - Sam Bernstein Senior Initiative")
+pygame.display.set_caption("Procedural Get Me Outta Here Levels by Sam Bernstein")
  
 # Loop until the user clicks the close button.
 done = False
 pause = False
+
+traversing_mode = True # if True, player automatically moves to end tile when solved
  
 # Used to manage how fast the screen updates
 clock = pygame.time.Clock()
@@ -183,15 +184,17 @@ player_radius = 21
 player_x = 300
 player_y = 200
 
-player_speed = 7
-
+current = 0 # current level and difficulty
+player_speed = 13
+default_side = 1.0
 class Player():
 
-    def __init__(self, x, y, speed = player_speed):
+    def __init__(self, x, y, current = 0, speed = player_speed):
 
         self.c = player_color
         self.r = player_radius
 
+        self.timss = 0
         self.x = int(x)
         self.y = int(y)
 
@@ -202,32 +205,38 @@ class Player():
 
         self.moving_directions = {'up': False, 'down': False, 'left': False, 'right': False} # the directions in which the circle will move in (after processing)
 
-        self.speed = speed
+        self.move_sequence = []
+
+        self.speed = speed + int(math.sqrt(.5 * current))
         self.v_x = 0
         self.v_y = 0
 
-    def plug_in_x(self, x, side = 1):
+    def plug_in_x(self, x, side = default_side): # for edge detection of circle
         try:
-            y_val = side*math.sqrt(self.r**2 - (x - self.x)**2) + self.y
+            y_val = side * math.sqrt(self.r**2 - (x - self.x)**2) + self.y
             return y_val
         except ValueError:
             pass
         return self.y
 
-    def plug_in_y(self, y, side = 1):
+    def plug_in_y(self, y, side = default_side): # for edge detection of circle
         try:
-            x_val = side*math.sqrt(self.r**2 - (y - self.y)**2) + self.x
+            x_val = side * math.sqrt(self.r**2 - (y - self.y)**2) + self.x
             return x_val
         except ValueError:
             pass
         return self.x
 
     def update_pos(self):
+        self.timss += 1
+
+        if self.timss % 50 == 0:
+            pass
         dir_dict = self.moving_directions
         speed = self.speed
 
-        self.v_y = 0
         self.v_x = 0
+        self.v_y = 0
 
         if dir_dict['up']:
             self.v_y = -speed
@@ -240,6 +249,7 @@ class Player():
 
         self.x += int(self.v_x)
         self.y += int(self.v_y)
+
         self.enclosing_square = pygame.Rect(self.x - self.r, self.y - self.r, 2*self.r, 2*self.r)
 
         for key in self.moving_directions:
@@ -262,7 +272,7 @@ TILE_C = (clr, clr, clr)
 tile_color_dict = {0: TILE_C, 1: BLOCK_C, 2: BLACK, None: RED}
 
 # Rotating Square object
-rotate_speed = 10
+rotate_speed = 13
 
 class RotatingSquare(): # for rotation animation
 
@@ -319,16 +329,253 @@ SELECTED_MONOCHROME = (tttt,tttt,tttt)
 
 # generates Level parameters procedurally
 
-pmeter_names = ['board', 'squares']
+def rotate_square(board, square, direction): # direction either 1 for counter-CC, -1 for CC, or 0 for 180 degrees
+    
+    if direction != None:
+        sqr = square
+        p_dev("Square in question: ", sqr)
 
-def generate_parameters(diffculty = 1):
+        if direction == 1:
 
-    parameters = {}
+            a = [[board[row][col] for col in range(sqr[0][1], sqr[1][1]+1)] for row in range(sqr[0][0], sqr[1][0] + 1)]
 
-    parameters[pmeter_names[0]] = None
+            n = len(a)
+            for i in range(n/2):
+                for j in range(i, n-i-1):
+                    tmp = a[i][j]
+                    a[i][j] = a[j][n-i-1]
+                    a[j][n-i-1] = a[n-i-1][n-j-1]
+                    a[n-i-1][n-j-1] = a[n-j-1][i]
+                    a[n-j-1][i]= tmp
+           
+            for row in range(n):
+                for col in range(n):
+                    board[sqr[0][0]+row][sqr[0][1]+col] = a[row][col]
+
+        elif direction == -1:
+
+            a = [[board[row][col] for col in range(sqr[0][1], sqr[1][1]+1)] for row in range(sqr[0][0], sqr[1][0] + 1)]
+
+            n = len(a)
+            for i in range(n/2):
+                for j in range(i, n-i-1):
+                    tmp = a[i][j]
+                    a[i][j] = a[n-j-1][i]
+                    a[n-j-1][i] = a[n-i-1][n-j-1]
+                    a[n-i-1][n-j-1] = a[j][n-i-1]
+                    a[j][n-i-1] = tmp
+                
+            for row in range(n):
+                for col in range(n):
+                    board[sqr[0][0]+row][sqr[0][1]+col] = a[row][col]
+            
+        elif direction == 0:
+            for n in range(2):
+                board = rotate_square(board, sqr, 1)
+
+        return board
+
+    return None
+
+def check_path(board):
+
+    if board[len(board) - 1][0] != 0: # if tile next to start tile is blocked, return False
+        return False
+
+    path_heads = []
+    new_path_heads = []
+    next = []
+    history = set()
+
+    path_heads.append((len(board)-1, 0)) # initialize search in first enterable tile
+
+    def check_adjacent(tile, d_x, d_y):
+        try:
+            next = (tile[0] + d_x, tile[1] + d_y)
+            if board[next[0]][next[1]] == 0 and next not in history:
+                new_path_heads.append(next)
+
+        except IndexError: # handles if tile is not on the board
+            pass
+
+    while len(path_heads) != 0:
+        new_path_heads = []
+
+        for head in path_heads:
+            history.add(head)
+
+        for head in path_heads:
+
+            check_adjacent(head, 0, 1)
+            check_adjacent(head, 0, -1)
+            check_adjacent(head, 1, 0)
+            check_adjacent(head, -1, 0)
+        
+        path_heads = new_path_heads
+
+        for head in path_heads:
+            if head == (0, len(board[0]) - 1): # if has reached tile adjacent to end tile
+                return True
+
+    return False # if all path ends die out, return no open path
 
 
-    return parameters
+### Part that generates information for levels ###
+vocos = ('board', 'squares')
+slope = 0.05
+
+def generate_parameters(difficulty = 1):
+
+    pmeters = {}
+
+    pmeters[vocos[0]] = [] # board
+    pmeters[vocos[1]] = [] # squares
+
+    # Make board dimensions
+    if difficulty == 1:
+        total_dim = 4
+    elif difficulty == 2:
+        total_dim = 5
+    else:
+        total_dim = 5 + int(math.sqrt(difficulty))
+
+    if difficulty > 10:
+        n = random.randint(3, total_dim - 3) # number of rows
+        m = total_dim - n # number of columns
+    elif difficulty > 36:
+        n = random.randint(4, total_dim - 4) # number of rows
+        m = total_dim - n # number of columns
+    else:    
+        n = random.randint(2, total_dim - 2) # number of rows
+        m = total_dim - n # number of columns
+
+    # Make # squares
+    if difficulty < 3:
+        num_squares = 1
+    elif difficulty < 19:
+        num_squares = int(1.1 * difficulty ** (1/2.05))
+    else:
+        num_squares = int( slope * (difficulty - 19.0) + 4.0 )
+
+    # Make squares
+    """
+    if num_squares > 1, make sure they're overlapping if difficulty > 15 FAILED
+    """
+    max_square_size = min(n, m)
+
+    for f in range(num_squares):
+        
+        def make_square(n, m):
+            square_1 = (random.randint(0, n - 2), random.randint(0, m - 2))
+            min_sqr_size = min(n - square_1[0], m - square_1[1])
+            p_dev("Min sqr size = " + str(min_sqr_size))
+            size = random.randint(2, min_sqr_size) - 1
+            square_2 = (square_1[0] + size, square_1[1] + size)
+            return [square_1, square_2]
+
+        square = make_square(n,m)
+
+        def get_covered_tiles(squar = None):
+            covered_tiles = []
+            if squar == None:
+                for squar in pmeters[vocos[1]]:
+                    for row in range(squar[0][0], squar[1][0] + 1):
+                        for col in range(squar[0][1], squar[1][1] + 1):
+                            covered_tiles.append((row, col))
+
+            else:
+                for row in range(squar[0][0], squar[1][0] + 1):
+                    for col in range(squar[0][1], squar[1][1] + 1):
+                        covered_tiles.append((row, col))
+
+            return covered_tiles
+
+
+        covered_tiles = []
+        if f == num_squares - 1:
+            if difficulty > 15:
+                overlaps = False
+                covered_tiles = get_covered_tiles()
+                if len(covered_tiles) != len(set(covered_tiles)):
+                    overlaps = True
+                
+                new_covered_tiles = get_covered_tiles(square)
+                while not(square not in pmeters[vocos[1]] and overlaps):
+                    
+                    covered_tiles = []
+                    covered_tiles = get_covered_tiles()
+                    square = make_square(n,m)
+                    new_covered_tiles = get_covered_tiles(square)
+                    covered_tiles.extend(new_covered_tiles)
+                    if len(covered_tiles) != len(set(covered_tiles)):
+                        overlaps = True
+
+        else:
+            times = 0
+            while square in pmeters[vocos[1]]:
+                square = make_square(n, m)
+                times += 1
+                # print("Same square happened" + str(n) + " times")
+
+        pmeters[vocos[1]].append(square)
+
+    # fill up board with blocks
+    pmeters[vocos[0]] = [[1 for i in range(m)] for j in range(n)]
+
+    # carve out a viable path via a random walk up and right across the aboard, always
+    current_tile = [n - 1, 0]
+    while current_tile != [0, m - 1]:
+        pmeters[vocos[0]][current_tile[0]][current_tile[1]] = 0
+        # 0 is first, 1 is second
+        which = random.randint(0,1)
+        if (which == 0 or current_tile[1] >= m - 1) and not(current_tile[0] <= 0):
+            current_tile = [current_tile[0] - 1, current_tile[1]]
+        else:
+            current_tile = [current_tile[0], current_tile[1] + 1]
+
+    pmeters[vocos[0]][current_tile[0]][current_tile[1]] = 0
+
+    # black out (value = 2) untouchable squares
+    #pseudo: if tile is filled and not in any square, set equal to 2
+    is_in_a_square = False
+    original_value = 0
+
+    for row in range(n):
+        for column in range(m):
+
+            if pmeters[vocos[0]][row][column] == 1:
+
+                pmeters[vocos[0]][row][column] = 2 # set to nothing, then see if it is in a square and if so set back to filled
+
+                for sqr in pmeters[vocos[1]]:
+                    sqr_rows = range(sqr[0][0], sqr[1][0] + 1)
+                    sqr_cols = range(sqr[0][1], sqr[1][1] + 1)
+
+                    if column in sqr_cols and row in sqr_rows: # only draw if not part of a rotating square
+                        pmeters[vocos[0]][row][column] = 1 # set back to filled if in a square
+                        break
+
+
+    # add empty square(s) to make easier
+
+    # shuffle randomly, like, 40 times 
+    shuffles = max(10, int(difficulty))
+
+    how_many_shuffles = 0
+    while how_many_shuffles < shuffles:
+
+        # if check_path(pmeters[vocos[0]]): # if there is an open path it is back to beginning
+        #     how_many_shuffles = 0
+
+        square_num = random.randint(0, num_squares - 1)
+        # turns randomly selected square cc, C-cc, or 180 degrees
+        pmeters[vocos[0]] = rotate_square(pmeters[vocos[0]], pmeters[vocos[1]][square_num], random.randint(-1,1)) 
+
+        how_many_shuffles += 1
+
+    print("" + str(how_many_shuffles)),
+
+    return pmeters
 
 class Level(): # stores all information for each level
 
@@ -339,7 +586,7 @@ class Level(): # stores all information for each level
 
     # board, squares, txt = None, tile_size = tile_size
 
-    def __init__(self, board, squares, txt = None, tile_size = tile_size):
+    def __init__(self, board, squares, current = 0, txt = None, tile_size = tile_size):
 
         self.board = board # a two-dimensional list ([row][col]) where 0: empty, 1: block, 2: off the board
         self.squares = squares # a list of top left and bottom right tiles coordinate tuples for each square
@@ -353,16 +600,24 @@ class Level(): # stores all information for each level
 
         self.outline_width = self.margin - 1
         # for offsetting board grid to center
-        self.x = 2*(size[0] - len(board[0])*(self.total_d))
-        self.y = .6*(size[1] - len(board)*(self.total_d))
+        self.x = .7*(size[0] - len(board[0]) * (self.total_d))
+        self.y = .6*(size[1] - len(board) * (self.total_d))
 
         self.rotating = []  # an ordered list of RotatingSquare() objects
         self.rot_speed = rotate_speed
 
-        self.player = Player(self.x - self.total_d + self.tile_size/2, self.y + (len(self.board) - 1)*self.total_d + self.tile_size/2)
+        self.player = Player(self.x - self.total_d + self.tile_size/2, self.y + (len(self.board) - 1)*self.total_d + self.tile_size/2, current)
         self.started = False   # True after player confirms that they read the instructions
-        self.completed = False # True when player reaches the end tile
         self.solved    = False # True once a path has been opened
+
+        self.traversing = False # True after level solved and before player reaches end tile
+        self.path_to_end = None # sequence of moves to get from start to end (gets filled once check_path returns True)
+        # does same as the key_move_commands, but for the auto-animation of the player traversing
+        self.move_commands = {'up' : False, 'down' : False, 'left' : False, 'right' : False }
+        self.next_threshold = 1000000 # set it to a large number so that next move is set for first animation move
+        self.in_end = False # True after player reaches end tile, indicates that player should stay there when going back to previous levels
+        
+        self.completed = False # True when player reaches the end tile
 
         if txt != None:
             if txt.wait == False:
@@ -422,6 +677,9 @@ class Level(): # stores all information for each level
 
     def check_path(self):
 
+        if self.solved:
+            return True
+
         if self.board[len(self.board) - 1][0] != 0: # if tile next to start tile is blocked, return False
             return False
 
@@ -459,9 +717,69 @@ class Level(): # stores all information for each level
 
             for head in path_heads:
                 if head == (0, len(self.board[0]) - 1): # if has reached tile adjacent to end tile
+                    self.path_to_end = self.find_path()
+                    print
+                    print(self.path_to_end)
                     return True
 
         return False # if all path ends die out, return no open path
+
+    def find_path(self): # returns list of moves to get to end tile ## IN PROGRESS
+
+        paths = [] # list of lists (list of paths)
+        new_paths = []
+        history = set()
+
+        # initialize search in start tile and first enterable tile
+        # Note: first tile always gets popped out at start of set_movements for animation
+        paths = [ [ (len(self.board) - 1, -1), (len(self.board) - 1, 0) ] ]
+        
+        # add the first tile to the history
+        history.add(paths[0][0]) 
+        history.add(paths[0][1])
+
+        def add_adjacents(i, d_x, d_y):
+            try:
+                tile = paths[i][-1]
+                next = (tile[0] + d_y, tile[1] + d_x)
+
+                if self.board[next[0]][next[1]] == 0 and next not in history:
+                    
+                    new_paths.append(paths[i])
+                    new_paths[-1].append(next)
+      
+                    history.add(next)
+
+            except IndexError: # handles if tile is not on the board
+                pass
+
+        while len(paths) != 0:
+
+            
+            print "As it goes"
+            print(paths)
+
+            new_paths = []
+
+            for i in range(len(paths)):
+
+                add_adjacents(i, 0, 1)
+                add_adjacents(i, 0, -1)
+                add_adjacents(i, 1, 0)
+                add_adjacents(i, -1, 0)
+
+            paths = new_paths
+
+            for path in paths:
+                if path[-1] == (0, len(self.board[0]) - 1): # if has reached tile adjacent to end tile
+                    path.append( (0, len(self.board[0]) ) ) # add end tile to complete path
+                    return path
+
+        print "FINAL"
+        print(paths)
+
+        return None
+
 
     def set_allowed_movements(self):
         global cycle
@@ -535,8 +853,8 @@ class Level(): # stores all information for each level
             self.player.allowed_basic_mov['up'] = False
             if tiles_around[1] or (player_y - player_r) > self.y + (curr_tile[0])*self.total_d - self.margin + self.buffer:
 
-                leftside  = self.x + (curr_tile[1])*self.total_d - self.margin
-                rightside = self.x + (curr_tile[1] + 1)*self.total_d
+                leftside  = self.x + (curr_tile[1]) * self.total_d - self.margin
+                rightside = self.x + (curr_tile[1] + 1) * self.total_d
                 top =  self.y + (curr_tile[0])*self.total_d - self.margin
 
                 if player_x - player_r < leftside:
@@ -611,10 +929,10 @@ class Level(): # stores all information for each level
             for vert_dir in vert:
                 for horiz_dir in horiz:
                     if allowed_basic[vert_dir] and allowed_basic[horiz_dir]:
-                        self.player.allowed_combined_mov[vert_dir+'_'+horiz_dir] = True
+                        self.player.allowed_combined_mov[vert_dir + '_' + horiz_dir] = True
 
                         if cycle%50 == 0:
-                            p_dev(vert_dir+'_'+horiz_dir)
+                            p_dev(vert_dir + '_' + horiz_dir)
 
 
             if cycle%150 == 0:
@@ -635,33 +953,120 @@ class Level(): # stores all information for each level
         number_of_dirs = 0
         one_key = ''
 
-        for key in key_move_commands:
-            if key_move_commands[key]:
-                number_of_dirs += 1
-                one_key = key
-                if key in vert:
-                    vert_commands.append(key)
-                elif key in horiz:
-                    horiz_commands.append(key)
+        if not self.traversing:
+            for key in key_move_commands:
+                if key_move_commands[key]:
+                    number_of_dirs += 1
+                    one_key = key
+                    if key in vert:
+                        vert_commands.append(key)
+                    elif key in horiz:
+                        horiz_commands.append(key)
+
+            # if player only tries to move in one direction
+            if number_of_dirs == 1 and player.allowed_basic_mov[one_key]:
+                self.player.moving_directions[one_key] = True
+                return
+
+            # if both vertical direction and a horizontal direction are pressed
+            if len(vert_commands) == 1 and len(horiz_commands) == 1:
+                comb_dir = vert_commands[0] + '_' + horiz_commands[0] # combined direction key
+                if player.allowed_combined_mov[comb_dir]:
+                    self.player.moving_directions[vert_commands[0]] = True
+                    self.player.moving_directions[horiz_commands[0]] = True
+
+                elif player.allowed_basic_mov[vert_commands[0]]:
+                    self.player.moving_directions[vert_commands[0]] = True
+
+                elif player.allowed_basic_mov[horiz_commands[0]]:
+                    self.player.moving_directions[horiz_commands[0]] = True
+
+        else:
+
+            # this assumes only one direction at a time
+            next_reached = self.player.y < self.next_threshold # for when direction is 'up'
+            if self.move_commands['down']:
+                next_reached = self.player.y > self.next_threshold
+
+            elif self.move_commands['right']:
+                next_reached = self.player.x > self.next_threshold
+            elif self.move_commands['left']:
+                next_reached = self.player.x < self.next_threshold
+
+            if self.completed:
+                next_reached = False
+
+            if next_reached: # if next tile reached, shift to next tile and determine new direction
+                self.path_to_end.pop(0) # once tile reached, move on to next tile
+                self.move_commands = {'up' : False, 'down' : False, 'left' : False, 'right' : False }
+
+                print "It popped! "
+                print(self.path_to_end)
+
+                current_tile_row = 0
+                current_tile_col = 0
+
+                current_tile_row = int((self.player.y - self.y) // self.total_d)
+                current_tile_col = int((self.player.x - self.x) // self.total_d)
+
+                if self.player.y - self.y <= 0:
+                    current_tile_row = 0
+                if self.player.x - self.x <= 0:
+                    current_tile_col = -1
+
+                curr_tile = (current_tile_row, current_tile_col)
+
+                next_tile = self.path_to_end[0]
+
+                y_diff = next_tile[0] - curr_tile[0]
+
+                left = self.x + current_tile_col * self.total_d
+                top = self.y + current_tile_row * self.total_d
+
+                if y_diff == 1:
+                    self.move_commands['down'] = True
+                    self.next_threshold = int(top + 1.5 * self.tile_size + self.margin)
+                elif y_diff == -1:
+                    self.move_commands['up'] = True
+                    self.next_threshold = int(top - self.margin - 0.5 * self.tile_size)
 
 
-        if number_of_dirs == 1 and player.allowed_basic_mov[one_key]:
-            self.player.moving_directions[one_key] = True
-            return
+                if y_diff == 0:
+                    x_diff = next_tile[1] - curr_tile[1]
 
-        
-        if len(vert_commands) == 1 and len(horiz_commands) == 1:
-            comb_dir = vert_commands[0]+'_'+horiz_commands[0] # combined direction key
-            if player.allowed_combined_mov[comb_dir]:
-                self.player.moving_directions[vert_commands[0]] = True
-                self.player.moving_directions[horiz_commands[0]] = True
+                    if x_diff == 1:
+                        self.move_commands['right'] = True
+                        self.next_threshold = int(left + 1.5 * self.tile_size + self.margin)
 
-            elif player.allowed_basic_mov[vert_commands[0]]:
-                self.player.moving_directions[vert_commands[0]] = True
+                    elif x_diff == -1:
+                        self.move_commands['left'] = True
+                        self.next_threshold = int(left - self.margin - 0.5 * self.tile_size)
 
-            elif player.allowed_basic_mov[horiz_commands[0]]:
-                self.player.moving_directions[horiz_commands[0]] = True
 
+            for key in self.move_commands:
+                if self.move_commands[key]:
+                    number_of_dirs += 1
+                    one_key = key
+                    if key in vert:
+                        vert_commands.append(key)
+                    elif key in horiz:
+                        horiz_commands.append(key)
+
+            if number_of_dirs == 1 and player.allowed_basic_mov[one_key]:
+                self.player.moving_directions[one_key] = True
+                return
+
+            if len(vert_commands) == 1 and len(horiz_commands) == 1:
+                comb_dir = vert_commands[0] + '_' + horiz_commands[0] # combined direction key
+                if player.allowed_combined_mov[comb_dir]:
+                    self.player.moving_directions[vert_commands[0]] = True
+                    self.player.moving_directions[horiz_commands[0]] = True
+
+                elif player.allowed_basic_mov[vert_commands[0]]:
+                    self.player.moving_directions[vert_commands[0]] = True
+
+                elif player.allowed_basic_mov[horiz_commands[0]]:
+                    self.player.moving_directions[horiz_commands[0]] = True
 
 
     def check_finished(self):
@@ -773,8 +1178,8 @@ class Level(): # stores all information for each level
 
                     if not(column in animating_sqr_cols and row in animating_sqr_rows): # only draw if not part of a rotating square
 
-                        left = self.x + column*self.total_d
-                        top = self.y + row*self.total_d
+                        left = self.x + column * self.total_d
+                        top = self.y + row * self.total_d
 
                         TILE_COLOR = tile_color_dict[self.board[row][column]]
                         pygame.draw.rect(screen, TILE_COLOR,[left, top, self.tile_size, self.tile_size], 0)
@@ -905,36 +1310,37 @@ instr[4] = LevelText('Squares can live inside each other.')
 instr[5] = LevelText('Press "T" to reset the current level.', wait = True)
 instr[6] = LevelText('When there are more than 2 squares, you can use the number keys to select specific squares directly.', wait = True)
 
-for f in range(51):
+for f in range(200):
     levels_const.append(None)
 
-levels_const[0] = Level(board = [[0,0],[1,0]], squares = [[(0,0),(1,1)]], txt = instr[0])
-levels_const[1] = Level(board = [[0,0,1],[1,0,0]], squares = [[(0,0),(1,1)], [(0,1),(1,2)]], txt = instr[1])
-levels_const[2] = Level(board = [[0,1,1],[0,0,1],[1,0,0]], squares = [[(0,0),(2,2)]], txt = instr[2])
-levels_const[3] = Level(board = [[1,0,1],[0,1,0],[0,0,1]], squares = [[(1,0),(2,1)], [(0,1),(1,2)]])
-levels_const[4] = Level(board = [[0,0,0,0,1,1],[0,1,0,0,0,0],[0,1,0,1,1,1],[0,0,0,0,1,1],[1,1,1,0,0,0],[0,0,0,1,1,1]], squares = [[(0,0),(2,2)],[(0,3),(2,5)],[(3,0),(5,2)],[(3,3),(5,5)]])
-levels_const[5] = Level(board = [[0,0,0],[1,1,0],[0,1,1]], squares = [[(0,0),(2,2)], [(1,1),(2,2)]],txt = instr[4])
-levels_const[6] = Level(board = [[1,1,1],[0,0,0],[0,0,0],[1,1,1]], squares = [[(0,0), (2,2)], [(1,0),(3,2)]], txt = instr[5])
-levels_const[7] = Level(board = [[1,1,0,0],[1,1,0,0],[1,1,0,0],[1,1,0,1]], squares = [[(2,0),(3,1)],[(2,1),(3,2)],[(1,2),(2,3)],[(0,2),(1,3)]], txt=instr[6])
-levels_const[8] = Level(board = [[1,1,1,0],[0,1,1,0],[0,1,1,1],[0,0,0,1]], squares = [[(1,0),(2,1)],[(0,1),(1,2)],[(1,2),(2,3)],[(2,1),(3,2)]])
-levels_const[9] = Level(board = [[2,2,0,0],[0,1,0,0],[1,1,1,2],[0,1,0,2]], squares = [[(2,0),(3,1)],[(1,0),(3,2)],[(0,2),(1,3)]])
-levels_const[10]= Level(board = [[0,1,1,1,0],[1,1,1,1,0],[1,0,0,0,0]], squares = [[(0,0),(2,2)],[(0,2),(2,4)]])
-levels_const[11]= Level(board = [[2,0,0,0,1,1,0],[2,0,0,0,1,1,2],[0,0,0,0,2,2,2],[0,0,0,2,2,2,2],[1,1,1,2,2,2,2],[1,1,1,2,2,2,2],[1,1,1,2,2,2,2]], squares = [[(4,0),(6,2)],[(2,0),(4,2)],[(0,1),(2,3)],[(0,3),(1,4)],[(0,4),(1,5)]], tile_size = tile_size - 10)
-levels_const[12]= Level(board = [[0,1,0,1],[1,0,1,0],[0,1,0,1],[1,0,1,0]], squares = [[(0,0),(3,3)],[(1,1),(3,3)],[(2,2),(3,3)]])
-levels_const[13]= Level(board = [[1,1,1,1,1],[0,1,1,1,0],[0,1,0,1,0],[0,1,2,1,0]], squares = [[(0,0),(1,1)],[(0,1),(2,3)],[(0,3),(1,4)],[(2,0),(3,1)],[(2,3),(3,4)]])
-levels_const[14]= Level(board = [[2,2,0,1,0,1],[1,0,1,0,1,0],[1,1,0,1,0,1],[1,1,1,0,1,0]], squares = [[(1,0),(3,2)],[(0,2),(3,5)],[(2,4),(3,5)]])
-levels_const[15]= Level(board = [[2,2,2,1,1,0,0],[1,0,1,0,1,0,1],[0,0,0,1,0,0,0],[1,2,2,0,2,2,1],[0,1,0,1,0,1,0]], squares = [[(1,0),(4,3)],[(2,1),(3,2)],[(1,3),(4,6)],[(0,3),(1,4)]])
-levels_const[16]= Level(board = [[2,2,2,1,1],[1,0,1,0,1],[0,0,0,1,0],[1,2,2,0,2],[0,1,0,1,0]], squares = [[(1,0),(4,3)],[(1,1),(4,4)],[(0,3),(1,4)]])
+# levels_const[0] = Level(board = [[0,0],[1,0]], squares = [[(0,0),(1,1)]], txt = instr[0])
+# levels_const[1] = Level(board = [[0,0,1],[1,0,0]], squares = [[(0,0),(1,1)], [(0,1),(1,2)]], txt = instr[1])
+# levels_const[2] = Level(board = [[0,1,1],[0,0,1],[1,0,0]], squares = [[(0,0),(2,2)]], txt = instr[2])
+# levels_const[3] = Level(board = [[1,0,1],[0,1,0],[0,0,1]], squares = [[(1,0),(2,1)], [(0,1),(1,2)]])
+# levels_const[4] = Level(board = [[0,0,0,0,1,1],[0,1,0,0,0,0],[0,1,0,1,1,1],[0,0,0,0,1,1],[1,1,1,0,0,0],[0,0,0,1,1,1]], squares = [[(0,0),(2,2)],[(0,3),(2,5)],[(3,0),(5,2)],[(3,3),(5,5)]])
+# levels_const[5] = Level(board = [[0,0,0],[1,1,0],[0,1,1]], squares = [[(0,0),(2,2)], [(1,1),(2,2)]],txt = instr[4])
+# levels_const[6] = Level(board = [[1,1,1],[0,0,0],[0,0,0],[1,1,1]], squares = [[(0,0), (2,2)], [(1,0),(3,2)]], txt = instr[5])
+# levels_const[7] = Level(board = [[1,1,0,0],[1,1,0,0],[1,1,0,0],[1,1,0,1]], squares = [[(2,0),(3,1)],[(2,1),(3,2)],[(1,2),(2,3)],[(0,2),(1,3)]], txt=instr[6])
+# levels_const[8] = Level(board = [[1,1,1,0],[0,1,1,0],[0,1,1,1],[0,0,0,1]], squares = [[(1,0),(2,1)],[(0,1),(1,2)],[(1,2),(2,3)],[(2,1),(3,2)]])
+# levels_const[9] = Level(board = [[2,2,0,0],[0,1,0,0],[1,1,1,2],[0,1,0,2]], squares = [[(2,0),(3,1)],[(1,0),(3,2)],[(0,2),(1,3)]])
+# levels_const[10]= Level(board = [[0,1,1,1,0],[1,1,1,1,0],[1,0,0,0,0]], squares = [[(0,0),(2,2)],[(0,2),(2,4)]])
+# levels_const[11]= Level(board = [[2,0,0,0,1,1,0],[2,0,0,0,1,1,2],[0,0,0,0,2,2,2],[0,0,0,2,2,2,2],[1,1,1,2,2,2,2],[1,1,1,2,2,2,2],[1,1,1,2,2,2,2]], squares = [[(4,0),(6,2)],[(2,0),(4,2)],[(0,1),(2,3)],[(0,3),(1,4)],[(0,4),(1,5)]], tile_size = tile_size - 10)
+# levels_const[12]= Level(board = [[0,1,0,1],[1,0,1,0],[0,1,0,1],[1,0,1,0]], squares = [[(0,0),(3,3)],[(1,1),(3,3)],[(2,2),(3,3)]])
+# levels_const[13]= Level(board = [[1,1,1,1,1],[0,1,1,1,0],[0,1,0,1,0],[0,1,2,1,0]], squares = [[(0,0),(1,1)],[(0,1),(2,3)],[(0,3),(1,4)],[(2,0),(3,1)],[(2,3),(3,4)]])
+# levels_const[14]= Level(board = [[2,2,0,1,0,1],[1,0,1,0,1,0],[1,1,0,1,0,1],[1,1,1,0,1,0]], squares = [[(1,0),(3,2)],[(0,2),(3,5)],[(2,4),(3,5)]])
+# levels_const[15]= Level(board = [[2,2,2,1,1,0,0],[1,0,1,0,1,0,1],[0,0,0,1,0,0,0],[1,2,2,0,2,2,1],[0,1,0,1,0,1,0]], squares = [[(1,0),(4,3)],[(2,1),(3,2)],[(1,3),(4,6)],[(0,3),(1,4)]])
+# levels_const[16]= Level(board = [[2,2,2,1,1],[1,0,1,0,1],[0,0,0,1,0],[1,2,2,0,2],[0,1,0,1,0]], squares = [[(1,0),(4,3)],[(1,1),(4,4)],[(0,3),(1,4)]])
 
 
-# last_level = 30
-# for f in range(last_level - 1):
-#     levels_const[f] = Level(difficulty = f)
+last_level = 50
+for f in range(1, last_level + 1):
+    parameters = generate_parameters(f)
+    levels_const[f - 1] = Level(parameters[vocos[0]], parameters[vocos[1]], f)
 
 current = 0 # index of current level
 
 
-levels_const[40]= Level(board = [[0,1,1,1,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,1,1,1,0]], squares = [[(1,0),(4,3)],[(0,1),(3,4)]]) # hard and really not fun
+# levels_const[40]= Level(board = [[0,1,1,1,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,1,1,1,0]], squares = [[(1,0),(4,3)],[(0,1),(3,4)]]) # hard and really not fun
 
 
 for index in range(len(levels_const)):  
@@ -960,8 +1366,9 @@ def reset_level(level_number):
 
 
 movement_allowed = False
-# stores values for player circle movement commands (from arroy keys)
+# stores values for player circle movement commands (from arrow keys)
 key_move_commands = {'up' : False, 'down' : False, 'left' : False, 'right' : False }
+
 
 rot_dir = None
 new_level = False
@@ -971,10 +1378,12 @@ while not done:
     # --- Main event loop
 
     # Path Check Algorithm
-    movement_allowed = levels[current].check_path()
-
-    if movement_allowed:
-        levels[current].solved = True
+    if not movement_allowed:
+        movement_allowed = levels[current].check_path()
+        if movement_allowed and traversing_mode:
+            levels[current].solved = True
+            levels[current].traversing = True
+            print "IT SET TRAVERSE to TRUE\n"
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -1053,21 +1462,40 @@ while not done:
                 if event.key == pygame.K_k:
                     rot_dir = 1      #counter-clockwise
                     p_dev("rot_dir changed to 1")
+
+                    levels[current].solved = False
+                    movement_allowed = False
+                    
                 elif event.key == pygame.K_l:
                     rot_dir = -1     # clockwise
                     p_dev("rot_dir changed to -1")
 
+                    levels[current].solved = False
+                    movement_allowed = False
 
             if movement_allowed:
+
                 # If arrow key pressed, store that info for processing below
                 if event.key == pygame.K_LEFT:
                     key_move_commands['left'] = True
+
+                    levels[current].traversing = False
+                    move_commands = {'up' : False, 'down' : False, 'left' : False, 'right' : False }
                 if event.key == pygame.K_RIGHT:
                     key_move_commands['right'] = True
+
+                    levels[current].traversing = False
+                    move_commands = {'up' : False, 'down' : False, 'left' : False, 'right' : False }
                 if event.key == pygame.K_UP:
                     key_move_commands['up'] = True
+
+                    levels[current].traversing = False
+                    move_commands = {'up' : False, 'down' : False, 'left' : False, 'right' : False }
                 if event.key == pygame.K_DOWN:
                     key_move_commands['down'] = True
+
+                    levels[current].traversing = False
+                    move_commands = {'up' : False, 'down' : False, 'left' : False, 'right' : False }
      
         # User let up on a key
         if event.type == pygame.KEYUP:
@@ -1084,8 +1512,9 @@ while not done:
     
     # Determine whether or not to move on to next level
     if levels[current].check_finished() and levels[current].started and not levels[current].completed and current < len(levels)-1:
-        if levels[current+1] != None:
+        if levels[current + 1] != None:
             levels[current].completed = True
+            levels[current].traversing = False
             levels[current].player.v_x = 0 # stop player circle from moving
             levels[current].player.v_y = 0
             current += 1 # move on to next level
@@ -1108,7 +1537,7 @@ while not done:
         p_dev("angle displacement: ", levels[current].rotating[0].angle_displacement)
 
         if number_waiting > 1:
-            levels[current].rotating[0].rotate_speed += 15.0*levels[current].rotating[0].dir*number_waiting
+            levels[current].rotating[0].rotate_speed += 15.0 * levels[current].rotating[0].dir * number_waiting
 
         if abs(levels[current].rotating[0].angle_displacement) >= 90.0:  # if first square done rotating, pop out of list and let next square begin rotation animation
             levels[current].rotating.pop(0)

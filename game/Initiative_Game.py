@@ -1,5 +1,5 @@
 """
-Sam Bernstein, 2015, Windward Senior Initiative 
+Sam Bernstein, 2015
 
 """
  
@@ -911,7 +911,7 @@ levels_const[14]= Level(board = [[2,2,0,1,0,1],[1,0,1,0,1,0],[1,1,0,1,0,1],[1,1,
 levels_const[15]= Level(board = [[2,2,2,1,1,0,0],[1,0,1,0,1,0,1],[0,0,0,1,0,0,0],[1,2,2,0,2,2,1],[0,1,0,1,0,1,0]], squares = [[(1,0),(4,3)],[(2,1),(3,2)],[(1,3),(4,6)],[(0,3),(1,4)]])
 levels_const[16]= Level(board = [[2,2,2,1,1],[1,0,1,0,1],[0,0,0,1,0],[1,2,2,0,2],[0,1,0,1,0]], squares = [[(1,0),(4,3)],[(1,1),(4,4)],[(0,3),(1,4)]])
 
-current = 16 # index of current level
+current = 0 # index of current level
 last_level = 16
 
 levels_const[40]= Level(board = [[0,1,1,1,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,1,1,1,0]], squares = [[(1,0),(4,3)],[(0,1),(3,4)]]) # hard and really not fun

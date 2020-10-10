@@ -43,7 +43,7 @@ pygame.init()
 size = (1200, 740)
 screen = pygame.display.set_mode(size)
  
-pygame.display.set_caption("Get Me Outta Here - Sam Bernstein Senior Initiative")
+pygame.display.set_caption("Get Me Outta Here - Sam Bernstein")
  
 # Loop until the user clicks the close button.
 done = False

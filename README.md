@@ -1,5 +1,5 @@
 # Get-Me-Outta-Here
-A puzzle game where every level is a cross between a maze and a 2D Rubik's cube. Every tile in the grid is empty or has a block. The grid contains square subregions you can rotate 90º, and all the blocks will rotate with that square. Rotate different squares to rearrange the grid to open up a path from your start tile to the end tile and solve the maze.
+A puzzle game where every level is a cross between a maze and a 2D Rubik's cube. Every tile in the grid is empty or blocked. The grid contains square subregions you can rotate 90º, and all the blocks will rotate with that square. Rotate different squares to rearrange the grid to open up a path from your start tile to the end tile and solve the maze.
 
 ![Solving a level](unsolved_solved.jpg)
 
